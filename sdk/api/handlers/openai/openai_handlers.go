@@ -757,6 +757,18 @@ func (h *OpenAIAPIHandler) ImageGenerations(c *gin.Context) {
 		chatReq, _ = sjson.Set(chatReq, "image_config.aspect_ratio", aspectRatio)
 	}
 
+	// Map quality to image_size for Gemini 3 Pro Image
+	// OpenAI quality: "standard" (default), "hd"
+	// Gemini image_size: "1K" (default), "2K", "4K"
+	if quality := gjson.GetBytes(rawJSON, "quality"); quality.Exists() {
+		switch quality.String() {
+		case "hd":
+			chatReq, _ = sjson.Set(chatReq, "image_config.image_size", "2K")
+		case "4k", "ultra":
+			chatReq, _ = sjson.Set(chatReq, "image_config.image_size", "4K")
+		}
+	}
+
 	// Use non-streaming for image generation
 	h.handleImageGenerationRequest(c, []byte(chatReq), int(n), responseFormat)
 }
