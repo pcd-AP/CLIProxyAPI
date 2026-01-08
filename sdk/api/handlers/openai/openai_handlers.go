@@ -739,9 +739,22 @@ func (h *OpenAIAPIHandler) ImageGenerations(c *gin.Context) {
 	chatReq, _ = sjson.Set(chatReq, "model", model)
 	chatReq, _ = sjson.Set(chatReq, "messages.0.content", prompt)
 
-	// Copy size if present for aspect ratio handling by downstream
+	// Add modalities for image generation - this tells the translator to set responseModalities
+	chatReq, _ = sjson.Set(chatReq, "modalities", []string{"image", "text"})
+
+	// Map size to aspect ratio for image_config
 	if size := gjson.GetBytes(rawJSON, "size"); size.Exists() {
-		chatReq, _ = sjson.Set(chatReq, "size", size.String())
+		sizeStr := size.String()
+		aspectRatio := "1:1" // default square
+		switch sizeStr {
+		case "1024x1024", "512x512", "256x256":
+			aspectRatio = "1:1"
+		case "1792x1024", "1536x1024", "1280x720":
+			aspectRatio = "16:9"
+		case "1024x1792", "1024x1536", "720x1280":
+			aspectRatio = "9:16"
+		}
+		chatReq, _ = sjson.Set(chatReq, "image_config.aspect_ratio", aspectRatio)
 	}
 
 	// Use non-streaming for image generation
