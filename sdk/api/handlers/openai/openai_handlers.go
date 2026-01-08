@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -803,6 +804,15 @@ func (h *OpenAIAPIHandler) handleImageGenerationRequest(c *gin.Context, chatReq 
 				imageData = firstImage.Get("b64_json").String()
 			} else if firstImage.Get("data").Exists() {
 				imageData = firstImage.Get("data").String()
+			} else if firstImage.Get("image_url.url").Exists() {
+				// Handle format: {"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}
+				urlData := firstImage.Get("image_url.url").String()
+				// Extract base64 data from data URL format
+				if strings.HasPrefix(urlData, "data:") {
+					if idx := strings.Index(urlData, ";base64,"); idx != -1 {
+						imageData = urlData[idx+8:] // Skip ";base64,"
+					}
+				}
 			}
 		}
 
