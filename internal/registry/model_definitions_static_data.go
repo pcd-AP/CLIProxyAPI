@@ -15,7 +15,7 @@ func GetClaudeModels() []*ModelInfo {
 			DisplayName:         "Claude 4.5 Haiku",
 			ContextLength:       200000,
 			MaxCompletionTokens: 64000,
-			// Thinking: not supported for Haiku models
+			Thinking:            &ThinkingSupport{Min: 1024, Max: 128000, ZeroAllowed: true, DynamicAllowed: false},
 		},
 		{
 			ID:                  "claude-sonnet-4-5-20250929",
@@ -29,15 +29,15 @@ func GetClaudeModels() []*ModelInfo {
 			Thinking:            &ThinkingSupport{Min: 1024, Max: 128000, ZeroAllowed: true, DynamicAllowed: false},
 		},
 		{
-			ID:                  "claude-opus-4-6-20260205",
+			ID:                  "claude-opus-4-6",
 			Object:              "model",
 			Created:             1770318000, // 2026-02-05
 			OwnedBy:             "anthropic",
 			Type:                "claude",
 			DisplayName:         "Claude 4.6 Opus",
 			Description:         "Premium model combining maximum intelligence with practical performance",
-			ContextLength:       200000,
-			MaxCompletionTokens: 64000,
+			ContextLength:       1000000,
+			MaxCompletionTokens: 128000,
 			Thinking:            &ThinkingSupport{Min: 1024, Max: 128000, ZeroAllowed: true, DynamicAllowed: false},
 		},
 		{
@@ -814,6 +814,7 @@ func GetIFlowModels() []*ModelInfo {
 		{ID: "kimi-k2-0905", DisplayName: "Kimi-K2-Instruct-0905", Description: "Moonshot Kimi K2 instruct 0905", Created: 1757030400},
 		{ID: "glm-4.6", DisplayName: "GLM-4.6", Description: "Zhipu GLM 4.6 general model", Created: 1759190400, Thinking: iFlowThinkingSupport},
 		{ID: "glm-4.7", DisplayName: "GLM-4.7", Description: "Zhipu GLM 4.7 general model", Created: 1766448000, Thinking: iFlowThinkingSupport},
+		{ID: "glm-5", DisplayName: "GLM-5", Description: "Zhipu GLM 5 general model", Created: 1770768000, Thinking: iFlowThinkingSupport},
 		{ID: "kimi-k2", DisplayName: "Kimi-K2", Description: "Moonshot Kimi K2 general model", Created: 1752192000},
 		{ID: "kimi-k2-thinking", DisplayName: "Kimi-K2-Thinking", Description: "Moonshot Kimi K2 thinking model", Created: 1762387200},
 		{ID: "deepseek-v3.2-chat", DisplayName: "DeepSeek-V3.2", Description: "DeepSeek V3.2 Chat", Created: 1764576000},
@@ -828,6 +829,7 @@ func GetIFlowModels() []*ModelInfo {
 		{ID: "qwen3-235b", DisplayName: "Qwen3-235B-A22B", Description: "Qwen3 235B A22B", Created: 1753401600},
 		{ID: "minimax-m2", DisplayName: "MiniMax-M2", Description: "MiniMax M2", Created: 1758672000, Thinking: iFlowThinkingSupport},
 		{ID: "minimax-m2.1", DisplayName: "MiniMax-M2.1", Description: "MiniMax M2.1", Created: 1766448000, Thinking: iFlowThinkingSupport},
+		{ID: "minimax-m2.5", DisplayName: "MiniMax-M2.5", Description: "MiniMax M2.5", Created: 1770825600, Thinking: iFlowThinkingSupport},
 		{ID: "iflow-rome-30ba3b", DisplayName: "iFlow-ROME", Description: "iFlow Rome 30BA3B model", Created: 1736899200},
 		{ID: "kimi-k2.5", DisplayName: "Kimi-K2.5", Description: "Moonshot Kimi K2.5", Created: 1769443200, Thinking: iFlowThinkingSupport},
 	}
@@ -870,5 +872,46 @@ func GetAntigravityModelConfig() map[string]*AntigravityModelConfig {
 		"claude-sonnet-4-5":          {MaxCompletionTokens: 64000},
 		"gpt-oss-120b-medium":        {},
 		"tab_flash_lite_preview":     {},
+	}
+}
+
+// GetKimiModels returns the standard Kimi (Moonshot AI) model definitions
+func GetKimiModels() []*ModelInfo {
+	return []*ModelInfo{
+		{
+			ID:                  "kimi-k2",
+			Object:              "model",
+			Created:             1752192000, // 2025-07-11
+			OwnedBy:             "moonshot",
+			Type:                "kimi",
+			DisplayName:         "Kimi K2",
+			Description:         "Kimi K2 - Moonshot AI's flagship coding model",
+			ContextLength:       131072,
+			MaxCompletionTokens: 32768,
+		},
+		{
+			ID:                  "kimi-k2-thinking",
+			Object:              "model",
+			Created:             1762387200, // 2025-11-06
+			OwnedBy:             "moonshot",
+			Type:                "kimi",
+			DisplayName:         "Kimi K2 Thinking",
+			Description:         "Kimi K2 Thinking - Extended reasoning model",
+			ContextLength:       131072,
+			MaxCompletionTokens: 32768,
+			Thinking:            &ThinkingSupport{Min: 1024, Max: 32000, ZeroAllowed: true, DynamicAllowed: true},
+		},
+		{
+			ID:                  "kimi-k2.5",
+			Object:              "model",
+			Created:             1769472000, // 2026-01-26
+			OwnedBy:             "moonshot",
+			Type:                "kimi",
+			DisplayName:         "Kimi K2.5",
+			Description:         "Kimi K2.5 - Latest Moonshot AI coding model with improved capabilities",
+			ContextLength:       131072,
+			MaxCompletionTokens: 32768,
+			Thinking:            &ThinkingSupport{Min: 1024, Max: 32000, ZeroAllowed: true, DynamicAllowed: true},
+		},
 	}
 }

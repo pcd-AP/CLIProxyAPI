@@ -398,6 +398,8 @@ func (s *Service) ensureExecutorsForAuth(a *coreauth.Auth) {
 		s.coreManager.RegisterExecutor(executor.NewQwenExecutor(s.cfg))
 	case "iflow":
 		s.coreManager.RegisterExecutor(executor.NewIFlowExecutor(s.cfg))
+	case "kimi":
+		s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
 	default:
 		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
 		if providerKey == "" {
@@ -738,6 +740,13 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		provider = "openai-compatibility"
 	}
 	excluded := s.oauthExcludedModels(provider, authKind)
+	// The synthesizer pre-merges per-account and global exclusions into the "excluded_models" attribute.
+	// If this attribute is present, it represents the complete list of exclusions and overrides the global config.
+	if a.Attributes != nil {
+		if val, ok := a.Attributes["excluded_models"]; ok && strings.TrimSpace(val) != "" {
+			excluded = strings.Split(val, ",")
+		}
+	}
 	var models []*ModelInfo
 	switch provider {
 	case "gemini":
@@ -798,6 +807,9 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		models = applyExcludedModels(models, excluded)
 	case "iflow":
 		models = registry.GetIFlowModels()
+		models = applyExcludedModels(models, excluded)
+	case "kimi":
+		models = registry.GetKimiModels()
 		models = applyExcludedModels(models, excluded)
 	default:
 		// Handle OpenAI-compatibility providers by name using config
