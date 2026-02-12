@@ -207,9 +207,15 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 						toolCallID := contentResult.Get("tool_use_id").String()
 						if toolCallID != "" {
 							funcName := toolCallID
-							toolCallIDs := strings.Split(toolCallID, "-")
-							if len(toolCallIDs) > 1 {
-								funcName = strings.Join(toolCallIDs[0:len(toolCallIDs)-2], "-")
+							// Parse function name from tool ID format: {functionName}-{timestamp}-{counter}
+							// Use LastIndex to handle function names containing hyphens
+							lastDash := strings.LastIndex(toolCallID, "-")
+							if lastDash > 0 {
+								beforeLast := toolCallID[:lastDash]
+								secondLastDash := strings.LastIndex(beforeLast, "-")
+								if secondLastDash > 0 {
+									funcName = toolCallID[:secondLastDash]
+								}
 							}
 							functionResponseResult := contentResult.Get("content")
 
@@ -241,7 +247,8 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 						}
 					} else if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "image" {
 						sourceResult := contentResult.Get("source")
-						if sourceResult.Get("type").String() == "base64" {
+						sourceType := sourceResult.Get("type").String()
+						if sourceType == "base64" {
 							inlineDataJSON := `{}`
 							if mimeType := sourceResult.Get("media_type").String(); mimeType != "" {
 								inlineDataJSON, _ = sjson.Set(inlineDataJSON, "mime_type", mimeType)
@@ -253,6 +260,19 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 							partJSON := `{}`
 							partJSON, _ = sjson.SetRaw(partJSON, "inlineData", inlineDataJSON)
 							clientContentJSON, _ = sjson.SetRaw(clientContentJSON, "parts.-1", partJSON)
+						} else if sourceType == "url" {
+							imageURL := sourceResult.Get("url").String()
+							if imageURL != "" {
+								fileDataJSON := `{}`
+								if mimeType := sourceResult.Get("media_type").String(); mimeType != "" {
+									fileDataJSON, _ = sjson.Set(fileDataJSON, "mimeType", mimeType)
+								}
+								fileDataJSON, _ = sjson.Set(fileDataJSON, "fileUri", imageURL)
+
+								partJSON := `{}`
+								partJSON, _ = sjson.SetRaw(partJSON, "fileData", fileDataJSON)
+								clientContentJSON, _ = sjson.SetRaw(clientContentJSON, "parts.-1", partJSON)
+							}
 						}
 					}
 				}
@@ -396,6 +416,35 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 	}
 	if v := gjson.GetBytes(rawJSON, "max_tokens"); v.Exists() && v.Type == gjson.Number {
 		out, _ = sjson.Set(out, "request.generationConfig.maxOutputTokens", v.Num)
+	}
+
+	// Translate stop_sequences -> generationConfig.stopSequences
+	if stopSeqs := gjson.GetBytes(rawJSON, "stop_sequences"); stopSeqs.Exists() && stopSeqs.IsArray() {
+		var sequences []interface{}
+		for _, seq := range stopSeqs.Array() {
+			sequences = append(sequences, seq.String())
+		}
+		if len(sequences) > 0 {
+			out, _ = sjson.Set(out, "request.generationConfig.stopSequences", sequences)
+		}
+	}
+
+	// Translate tool_choice -> toolConfig.functionCallingConfig
+	toolChoice := gjson.GetBytes(rawJSON, "tool_choice")
+	if toolChoice.Exists() {
+		choiceType := toolChoice.Get("type").String()
+		switch choiceType {
+		case "auto":
+			out, _ = sjson.Set(out, "request.toolConfig.functionCallingConfig.mode", "AUTO")
+		case "any":
+			out, _ = sjson.Set(out, "request.toolConfig.functionCallingConfig.mode", "ANY")
+		case "tool":
+			toolName := toolChoice.Get("name").String()
+			out, _ = sjson.Set(out, "request.toolConfig.functionCallingConfig.mode", "ANY")
+			if toolName != "" {
+				out, _ = sjson.Set(out, "request.toolConfig.functionCallingConfig.allowedFunctionNames", []interface{}{toolName})
+			}
+		}
 	}
 
 	outBytes := []byte(out)

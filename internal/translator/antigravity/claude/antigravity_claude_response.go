@@ -9,6 +9,8 @@ package claude
 import (
 	"bytes"
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -20,6 +22,13 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+// generateMessageID creates a unique message ID for each response using crypto/rand.
+func generateMessageID() string {
+	b := make([]byte, 16)
+	crypto_rand.Read(b)
+	return fmt.Sprintf("msg_%s", hex.EncodeToString(b))
+}
 
 // Params holds parameters for response conversion and maintains state across streaming chunks.
 // This structure tracks the current state of the response translation process to ensure
@@ -39,6 +48,7 @@ type Params struct {
 	HasSentFinalEvents   bool   // Indicates if final content/message events have been sent
 	HasToolUse           bool   // Indicates if tool use was observed in the stream
 	HasContent           bool   // Tracks whether any content (text, thinking, or tool use) has been output
+	RequestedModel       string // The model name from the original request, used as default in message_start
 
 	// Signature caching support
 	CurrentThinkingText strings.Builder // Accumulates thinking text for signature caching
@@ -69,6 +79,7 @@ func ConvertAntigravityResponseToClaude(_ context.Context, _ string, originalReq
 			HasFirstResponse: false,
 			ResponseType:     0,
 			ResponseIndex:    0,
+			RequestedModel:   gjson.GetBytes(originalRequestRawJSON, "model").String(),
 		}
 	}
 	modelName := gjson.GetBytes(requestRawJSON, "model").String()
@@ -94,12 +105,23 @@ func ConvertAntigravityResponseToClaude(_ context.Context, _ string, originalReq
 	if !params.HasFirstResponse {
 		output = "event: message_start\n"
 
-		// Create the initial message structure with default values according to Claude Code API specification
-		// This follows the Claude Code API specification for streaming message initialization
-		messageStartTemplate := `{"type": "message_start", "message": {"id": "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY", "type": "message", "role": "assistant", "content": [], "model": "claude-3-5-sonnet-20241022", "stop_reason": null, "stop_sequence": null, "usage": {"input_tokens": 0, "output_tokens": 0}}}`
+		// Determine the default model name from the requested model or fallback
+		defaultModel := params.RequestedModel
+		if defaultModel == "" {
+			defaultModel = "claude-3-5-sonnet-20241022"
+		}
 
-		// Use cpaUsageMetadata within the message_start event for Claude.
+		// Generate a unique message ID for this response
+		messageID := generateMessageID()
+
+		// Create the initial message structure with default values according to Claude Code API specification
+		messageStartTemplate := fmt.Sprintf(`{"type": "message_start", "message": {"id": "%s", "type": "message", "role": "assistant", "content": [], "model": "", "stop_reason": null, "stop_sequence": null, "usage": {"input_tokens": 0, "output_tokens": 0}}}`, messageID)
+		messageStartTemplate, _ = sjson.Set(messageStartTemplate, "message.model", defaultModel)
+
+		// Use cpaUsageMetadata within the message_start event for Claude, with fallback to usageMetadata.
 		if promptTokenCount := gjson.GetBytes(rawJSON, "response.cpaUsageMetadata.promptTokenCount"); promptTokenCount.Exists() {
+			messageStartTemplate, _ = sjson.Set(messageStartTemplate, "message.usage.input_tokens", promptTokenCount.Int())
+		} else if promptTokenCount := gjson.GetBytes(rawJSON, "response.usageMetadata.promptTokenCount"); promptTokenCount.Exists() {
 			messageStartTemplate, _ = sjson.Set(messageStartTemplate, "message.usage.input_tokens", promptTokenCount.Int())
 		}
 		if candidatesTokenCount := gjson.GetBytes(rawJSON, "response.cpaUsageMetadata.candidatesTokenCount"); candidatesTokenCount.Exists() {

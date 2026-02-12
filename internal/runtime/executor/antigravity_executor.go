@@ -219,13 +219,7 @@ attemptLoop:
 						continue attemptLoop
 					}
 				}
-				sErr := statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
-				if httpResp.StatusCode == http.StatusTooManyRequests {
-					if retryAfter, parseErr := parseRetryDelay(bodyBytes); parseErr == nil && retryAfter != nil {
-						sErr.retryAfter = retryAfter
-					}
-				}
-				err = sErr
+				err = newAntigravityStatusErr(httpResp.StatusCode, bodyBytes, from)
 				return resp, err
 			}
 
@@ -239,13 +233,7 @@ attemptLoop:
 
 		switch {
 		case lastStatus != 0:
-			sErr := statusErr{code: lastStatus, msg: string(lastBody)}
-			if lastStatus == http.StatusTooManyRequests {
-				if retryAfter, parseErr := parseRetryDelay(lastBody); parseErr == nil && retryAfter != nil {
-					sErr.retryAfter = retryAfter
-				}
-			}
-			err = sErr
+			err = newAntigravityStatusErr(lastStatus, lastBody, from)
 		case lastErr != nil:
 			err = lastErr
 		default:
@@ -373,13 +361,7 @@ attemptLoop:
 						continue attemptLoop
 					}
 				}
-				sErr := statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
-				if httpResp.StatusCode == http.StatusTooManyRequests {
-					if retryAfter, parseErr := parseRetryDelay(bodyBytes); parseErr == nil && retryAfter != nil {
-						sErr.retryAfter = retryAfter
-					}
-				}
-				err = sErr
+				err = newAntigravityStatusErr(httpResp.StatusCode, bodyBytes, from)
 				return resp, err
 			}
 
@@ -444,13 +426,7 @@ attemptLoop:
 
 		switch {
 		case lastStatus != 0:
-			sErr := statusErr{code: lastStatus, msg: string(lastBody)}
-			if lastStatus == http.StatusTooManyRequests {
-				if retryAfter, parseErr := parseRetryDelay(lastBody); parseErr == nil && retryAfter != nil {
-					sErr.retryAfter = retryAfter
-				}
-			}
-			err = sErr
+			err = newAntigravityStatusErr(lastStatus, lastBody, from)
 		case lastErr != nil:
 			err = lastErr
 		default:
@@ -764,13 +740,7 @@ attemptLoop:
 						continue attemptLoop
 					}
 				}
-				sErr := statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
-				if httpResp.StatusCode == http.StatusTooManyRequests {
-					if retryAfter, parseErr := parseRetryDelay(bodyBytes); parseErr == nil && retryAfter != nil {
-						sErr.retryAfter = retryAfter
-					}
-				}
-				err = sErr
+				err = newAntigravityStatusErr(httpResp.StatusCode, bodyBytes, from)
 				return nil, err
 			}
 
@@ -825,13 +795,7 @@ attemptLoop:
 
 		switch {
 		case lastStatus != 0:
-			sErr := statusErr{code: lastStatus, msg: string(lastBody)}
-			if lastStatus == http.StatusTooManyRequests {
-				if retryAfter, parseErr := parseRetryDelay(lastBody); parseErr == nil && retryAfter != nil {
-					sErr.retryAfter = retryAfter
-				}
-			}
-			err = sErr
+			err = newAntigravityStatusErr(lastStatus, lastBody, from)
 		case lastErr != nil:
 			err = lastErr
 		default:
@@ -978,23 +942,13 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *cliproxyaut
 			log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
 			continue
 		}
-		sErr := statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
-		if httpResp.StatusCode == http.StatusTooManyRequests {
-			if retryAfter, parseErr := parseRetryDelay(bodyBytes); parseErr == nil && retryAfter != nil {
-				sErr.retryAfter = retryAfter
-			}
-		}
+		sErr := newAntigravityStatusErr(httpResp.StatusCode, bodyBytes, from)
 		return cliproxyexecutor.Response{}, sErr
 	}
 
 	switch {
 	case lastStatus != 0:
-		sErr := statusErr{code: lastStatus, msg: string(lastBody)}
-		if lastStatus == http.StatusTooManyRequests {
-			if retryAfter, parseErr := parseRetryDelay(lastBody); parseErr == nil && retryAfter != nil {
-				sErr.retryAfter = retryAfter
-			}
-		}
+		sErr := newAntigravityStatusErr(lastStatus, lastBody, from)
 		return cliproxyexecutor.Response{}, sErr
 	case lastErr != nil:
 		return cliproxyexecutor.Response{}, lastErr
@@ -1283,7 +1237,8 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 	payload = geminiToAntigravity(modelName, payload, projectID)
 	payload, _ = sjson.SetBytes(payload, "model", modelName)
 
-	useAntigravitySchema := strings.Contains(modelName, "claude") || strings.Contains(modelName, "gemini-3-pro-high")
+	lowerModelName := strings.ToLower(modelName)
+	useAntigravitySchema := strings.Contains(lowerModelName, "claude") || strings.Contains(lowerModelName, "gemini-3-pro-high")
 	payloadStr := string(payload)
 	paths := make([]string, 0)
 	util.Walk(gjson.Parse(payloadStr), "", "parametersJsonSchema", &paths)
@@ -1298,20 +1253,32 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 	}
 
 	if useAntigravitySchema {
-		systemInstructionPartsResult := gjson.Get(payloadStr, "request.systemInstruction.parts")
-		payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.role", "user")
-		payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.parts.0.text", systemInstruction)
-		payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.parts.1.text", fmt.Sprintf("Please ignore following [ignore]%s[/ignore]", systemInstruction))
+		isClaude := strings.Contains(lowerModelName, "claude")
 
-		if systemInstructionPartsResult.Exists() && systemInstructionPartsResult.IsArray() {
-			for _, partResult := range systemInstructionPartsResult.Array() {
-				payloadStr, _ = sjson.SetRaw(payloadStr, "request.systemInstruction.parts.-1", partResult.Raw)
+		payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.role", "user")
+
+		if !isClaude {
+			// Only inject Antigravity identity for non-Claude models
+			systemInstructionPartsResult := gjson.Get(payloadStr, "request.systemInstruction.parts")
+			payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.parts.0.text", systemInstruction)
+			payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.parts.1.text", fmt.Sprintf("Please ignore following [ignore]%s[/ignore]", systemInstruction))
+
+			// Re-append original parts after the injected identity parts
+			if systemInstructionPartsResult.Exists() && systemInstructionPartsResult.IsArray() {
+				for _, partResult := range systemInstructionPartsResult.Array() {
+					payloadStr, _ = sjson.SetRaw(payloadStr, "request.systemInstruction.parts.-1", partResult.Raw)
+				}
 			}
 		}
+		// For Claude models, keep original systemInstruction parts intact
 	}
 
-	if strings.Contains(modelName, "claude") {
-		payloadStr, _ = sjson.Set(payloadStr, "request.toolConfig.functionCallingConfig.mode", "VALIDATED")
+	if strings.Contains(lowerModelName, "claude") {
+		// Only set VALIDATED if tool_choice was not explicitly set by the request translator
+		existingMode := gjson.Get(payloadStr, "request.toolConfig.functionCallingConfig.mode")
+		if !existingMode.Exists() || existingMode.String() == "" {
+			payloadStr, _ = sjson.Set(payloadStr, "request.toolConfig.functionCallingConfig.mode", "VALIDATED")
+		}
 	} else {
 		payloadStr, _ = sjson.Delete(payloadStr, "request.generationConfig.maxOutputTokens")
 	}
@@ -1584,6 +1551,50 @@ func generateStableSessionID(payload []byte) string {
 		}
 	}
 	return generateSessionID()
+}
+
+func newAntigravityStatusErr(statusCode int, body []byte, sourceFormat sdktranslator.Format) statusErr {
+	msg := string(body)
+	if sourceFormat.String() == "claude" {
+		msg = translateAntigravityErrorToClaude(statusCode, msg)
+	}
+	sErr := statusErr{code: statusCode, msg: msg}
+	if statusCode == http.StatusTooManyRequests {
+		if retryAfter, parseErr := parseRetryDelay(body); parseErr == nil && retryAfter != nil {
+			sErr.retryAfter = retryAfter
+		}
+	}
+	return sErr
+}
+
+func translateAntigravityErrorToClaude(statusCode int, body string) string {
+	errType := "api_error"
+	switch {
+	case statusCode == 400:
+		errType = "invalid_request_error"
+	case statusCode == 401 || statusCode == 403:
+		errType = "authentication_error"
+	case statusCode == 404:
+		errType = "not_found_error"
+	case statusCode == 429:
+		errType = "rate_limit_error"
+	case statusCode == 529:
+		errType = "overloaded_error"
+	case statusCode >= 500:
+		errType = "api_error"
+	}
+
+	// Try to extract message from Google error format
+	msg := gjson.Get(body, "error.message").String()
+	if msg == "" {
+		msg = body
+	}
+
+	// Return Claude error format
+	result, _ := sjson.Set("", "type", "error")
+	result, _ = sjson.Set(result, "error.type", errType)
+	result, _ = sjson.Set(result, "error.message", msg)
+	return result
 }
 
 func generateProjectID() string {
