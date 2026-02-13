@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/proxy"
 )
@@ -40,7 +41,7 @@ func (p *defaultRoundTripperProvider) RoundTripperFor(auth *coreauth.Auth) http.
 		return rt
 	}
 	// Parse the proxy URL to determine the scheme.
-	proxyURL, errParse := url.Parse(proxyStr)
+	proxyURL, errParse := url.Parse(util.NormalizeProxyURL(proxyStr))
 	if errParse != nil {
 		log.Errorf("parse proxy URL failed: %v", errParse)
 		return nil

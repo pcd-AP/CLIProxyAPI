@@ -8,11 +8,38 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/proxy"
 )
+
+// NormalizeProxyURL normalizes a raw proxy string into a valid URL.
+// Supported formats:
+//   - Already a URL (http://, https://, socks5://, socks4://) → return as-is
+//   - host:port (2 parts) → http://host:port
+//   - host:port:user:pass (4 parts) → http://user:pass@host:port
+//   - Otherwise → prepend http://
+func NormalizeProxyURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") ||
+		strings.HasPrefix(raw, "socks5://") || strings.HasPrefix(raw, "socks4://") {
+		return raw
+	}
+	parts := strings.Split(raw, ":")
+	switch len(parts) {
+	case 2:
+		return "http://" + parts[0] + ":" + parts[1]
+	case 4:
+		return "http://" + parts[2] + ":" + parts[3] + "@" + parts[0] + ":" + parts[1]
+	default:
+		return "http://" + raw
+	}
+}
 
 // SetProxy configures the provided HTTP client with proxy settings from the configuration.
 // It supports SOCKS5, HTTP, and HTTPS proxies. The function modifies the client's transport
@@ -20,7 +47,7 @@ import (
 func SetProxy(cfg *config.SDKConfig, httpClient *http.Client) *http.Client {
 	var transport *http.Transport
 	// Attempt to parse the proxy URL from the configuration.
-	proxyURL, errParse := url.Parse(cfg.ProxyURL)
+	proxyURL, errParse := url.Parse(NormalizeProxyURL(cfg.ProxyURL))
 	if errParse == nil {
 		// Handle different proxy schemes.
 		if proxyURL.Scheme == "socks5" {

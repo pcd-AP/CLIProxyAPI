@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	tls "github.com/refraction-networking/utls"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/http2"
@@ -32,7 +33,7 @@ type utlsRoundTripper struct {
 func newUtlsRoundTripper(cfg *config.SDKConfig) *utlsRoundTripper {
 	var dialer proxy.Dialer = proxy.Direct
 	if cfg != nil && cfg.ProxyURL != "" {
-		proxyURL, err := url.Parse(cfg.ProxyURL)
+		proxyURL, err := url.Parse(util.NormalizeProxyURL(cfg.ProxyURL))
 		if err != nil {
 			log.Errorf("failed to parse proxy URL %q: %v", cfg.ProxyURL, err)
 		} else {

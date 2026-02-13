@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/proxy"
@@ -76,7 +77,7 @@ func buildProxyTransport(proxyURL string) *http.Transport {
 		return nil
 	}
 
-	parsedURL, errParse := url.Parse(proxyURL)
+	parsedURL, errParse := url.Parse(util.NormalizeProxyURL(proxyURL))
 	if errParse != nil {
 		log.Errorf("parse proxy URL failed: %v", errParse)
 		return nil

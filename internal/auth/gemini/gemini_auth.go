@@ -81,7 +81,7 @@ func (g *GeminiAuth) GetAuthenticatedClient(ctx context.Context, ts *GeminiToken
 	callbackURL := fmt.Sprintf("http://localhost:%d/oauth2callback", callbackPort)
 
 	// Configure proxy settings for the HTTP client if a proxy URL is provided.
-	proxyURL, err := url.Parse(cfg.ProxyURL)
+	proxyURL, err := url.Parse(util.NormalizeProxyURL(cfg.ProxyURL))
 	if err == nil {
 		var transport *http.Transport
 		if proxyURL.Scheme == "socks5" {

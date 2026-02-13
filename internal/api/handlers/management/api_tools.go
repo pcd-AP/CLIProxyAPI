@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/geminicli"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/proxy"
@@ -665,7 +666,7 @@ func buildProxyTransport(proxyStr string) *http.Transport {
 		return nil
 	}
 
-	proxyURL, errParse := url.Parse(proxyStr)
+	proxyURL, errParse := url.Parse(util.NormalizeProxyURL(proxyStr))
 	if errParse != nil {
 		log.WithError(errParse).Debug("parse proxy URL failed")
 		return nil
