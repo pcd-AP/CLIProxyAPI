@@ -10,6 +10,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -231,6 +233,8 @@ func (h *ClaudeCodeAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON [
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("anthropic-version", "2023-06-01")
+		c.Header("x-request-id", fmt.Sprintf("req_%s", generateClaudeRequestID()))
 	}
 
 	// Peek at the first chunk to determine success or failure before setting headers
@@ -300,6 +304,12 @@ func (h *ClaudeCodeAPIHandler) forwardClaudeStream(c *gin.Context, flusher http.
 			_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errorBytes)
 		},
 	})
+}
+
+func generateClaudeRequestID() string {
+	b := make([]byte, 12)
+	crypto_rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 type claudeErrorDetail struct {

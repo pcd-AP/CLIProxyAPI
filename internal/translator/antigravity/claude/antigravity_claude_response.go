@@ -67,22 +67,34 @@ var toolUseIDCounter uint64
 //
 // Parameters:
 //   - ctx: The context for the request, used for cancellation and timeout handling
-//   - modelName: The name of the model being used for the response (unused in current implementation)
+//   - modelName: The resolved upstream model name (after applyOAuthModelAlias), used for RequestedModel and cache operations
 //   - rawJSON: The raw JSON response from the Gemini CLI API
 //   - param: A pointer to a parameter object for maintaining state between calls
 //
 // Returns:
 //   - []string: A slice of strings, each containing a Claude Code-compatible JSON response
-func ConvertAntigravityResponseToClaude(_ context.Context, _ string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) []string {
+func ConvertAntigravityResponseToClaude(_ context.Context, modelName string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) []string {
 	if *param == nil {
+		// Use the resolved model name (from req.Model after applyOAuthModelAlias)
+		// which contains the correct upstream name like "claude-opus-4-6-thinking".
+		// Fall back to originalRequestRawJSON only if modelName is empty.
+		reqModel := modelName
+		if reqModel == "" {
+			reqModel = gjson.GetBytes(originalRequestRawJSON, "model").String()
+		}
 		*param = &Params{
 			HasFirstResponse: false,
 			ResponseType:     0,
 			ResponseIndex:    0,
-			RequestedModel:   gjson.GetBytes(originalRequestRawJSON, "model").String(),
+			RequestedModel:   reqModel,
 		}
 	}
-	modelName := gjson.GetBytes(requestRawJSON, "model").String()
+	// Re-read modelName from the translated request for signature caching operations.
+	// This may differ from the resolved model name used for RequestedModel.
+	cacheModelName := gjson.GetBytes(requestRawJSON, "model").String()
+	if cacheModelName == "" {
+		cacheModelName = modelName
+	}
 
 	params := (*param).(*Params)
 
@@ -128,10 +140,10 @@ func ConvertAntigravityResponseToClaude(_ context.Context, _ string, originalReq
 			messageStartTemplate, _ = sjson.Set(messageStartTemplate, "message.usage.output_tokens", candidatesTokenCount.Int())
 		}
 
-		// Override default values with actual response metadata if available from the Gemini CLI response
-		if modelVersionResult := gjson.GetBytes(rawJSON, "response.modelVersion"); modelVersionResult.Exists() {
-			messageStartTemplate, _ = sjson.Set(messageStartTemplate, "message.model", modelVersionResult.String())
-		}
+		// NOTE: Do NOT override message.model with response.modelVersion from the upstream response,
+		// as it may contain Gemini internal model names (e.g. "gemini-exp-...") that cause
+		// Claude Code client to crash when calling .match() on the model name.
+		// The defaultModel from RequestedModel (resolved by applyOAuthModelAlias) is the correct value.
 		if responseIDResult := gjson.GetBytes(rawJSON, "response.responseId"); responseIDResult.Exists() {
 			messageStartTemplate, _ = sjson.Set(messageStartTemplate, "message.id", responseIDResult.String())
 		}
@@ -160,13 +172,13 @@ func ConvertAntigravityResponseToClaude(_ context.Context, _ string, originalReq
 						// log.Debug("Branch: signature_delta")
 
 						if params.CurrentThinkingText.Len() > 0 {
-							cache.CacheSignature(modelName, params.CurrentThinkingText.String(), thoughtSignature.String())
+							cache.CacheSignature(cacheModelName, params.CurrentThinkingText.String(), thoughtSignature.String())
 							// log.Debugf("Cached signature for thinking block (textLen=%d)", params.CurrentThinkingText.Len())
 							params.CurrentThinkingText.Reset()
 						}
 
 						output = output + "event: content_block_delta\n"
-						data, _ := sjson.Set(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":""}}`, params.ResponseIndex), "delta.signature", fmt.Sprintf("%s#%s", cache.GetModelGroup(modelName), thoughtSignature.String()))
+						data, _ := sjson.Set(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":""}}`, params.ResponseIndex), "delta.signature", fmt.Sprintf("%s#%s", cache.GetModelGroup(cacheModelName), thoughtSignature.String()))
 						output = output + fmt.Sprintf("data: %s\n\n\n", data)
 						params.HasContent = true
 					} else if params.ResponseType == 2 { // Continue existing thinking block if already in thinking state
@@ -391,9 +403,18 @@ func resolveStopReason(params *Params) string {
 //
 // Returns:
 //   - string: A Claude-compatible JSON response.
-func ConvertAntigravityResponseToClaudeNonStream(_ context.Context, _ string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, _ *any) string {
-	_ = originalRequestRawJSON
-	modelName := gjson.GetBytes(requestRawJSON, "model").String()
+func ConvertAntigravityResponseToClaudeNonStream(_ context.Context, resolvedModelName string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, _ *any) string {
+	// Determine the model name - prefer the resolved model name from executor
+	// which has already been processed by applyOAuthModelAlias to the correct upstream name.
+	// Fall back to requestRawJSON model, then to a sensible default.
+	responseModel := resolvedModelName
+	if responseModel == "" {
+		responseModel = gjson.GetBytes(requestRawJSON, "model").String()
+	}
+	if responseModel == "" {
+		responseModel = "claude-sonnet-4-20250514"
+	}
+	modelName := responseModel
 
 	root := gjson.ParseBytes(rawJSON)
 	promptTokens := root.Get("response.usageMetadata.promptTokenCount").Int()
@@ -410,8 +431,14 @@ func ConvertAntigravityResponseToClaudeNonStream(_ context.Context, _ string, or
 	}
 
 	responseJSON := `{"id":"","type":"message","role":"assistant","model":"","content":null,"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}`
-	responseJSON, _ = sjson.Set(responseJSON, "id", root.Get("response.responseId").String())
-	responseJSON, _ = sjson.Set(responseJSON, "model", root.Get("response.modelVersion").String())
+	responseID := root.Get("response.responseId").String()
+	if responseID == "" {
+		responseID = generateMessageID()
+	}
+	responseJSON, _ = sjson.Set(responseJSON, "id", responseID)
+	// Use the resolved model name instead of response.modelVersion to avoid
+	// Gemini internal model names that crash Claude Code client's .match() call.
+	responseJSON, _ = sjson.Set(responseJSON, "model", responseModel)
 	responseJSON, _ = sjson.Set(responseJSON, "usage.input_tokens", promptTokens)
 	responseJSON, _ = sjson.Set(responseJSON, "usage.output_tokens", outputTokens)
 	// Add cache_read_input_tokens if cached tokens are present (indicates prompt caching is working)
