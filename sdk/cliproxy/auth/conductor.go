@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
@@ -582,6 +583,13 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
 
+		// Set upstream account info in gin context for response header
+		if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
+			if authType, accountValue := auth.AccountInfo(); accountValue != "" && authType == "oauth" {
+				ginCtx.Header("X-Upstream-Account", accountValue)
+			}
+		}
+
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
 		if rt := m.roundTripperFor(auth); rt != nil {
@@ -638,6 +646,13 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
 
+		// Set upstream account info in gin context for response header
+		if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
+			if authType, accountValue := auth.AccountInfo(); accountValue != "" && authType == "oauth" {
+				ginCtx.Header("X-Upstream-Account", accountValue)
+			}
+		}
+
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
 		if rt := m.roundTripperFor(auth); rt != nil {
@@ -693,6 +708,13 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
+
+		// Set upstream account info in gin context for response header
+		if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
+			if authType, accountValue := auth.AccountInfo(); accountValue != "" && authType == "oauth" {
+				ginCtx.Header("X-Upstream-Account", accountValue)
+			}
+		}
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
