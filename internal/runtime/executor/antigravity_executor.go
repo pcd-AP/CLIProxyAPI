@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
@@ -1252,25 +1253,27 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 		payloadStr = util.CleanJSONSchemaForGemini(payloadStr)
 	}
 
-	if useAntigravitySchema {
-		isClaude := strings.Contains(lowerModelName, "claude")
+	// Inject Antigravity identity for ALL models to avoid Google detection
+	injectAntigravity := false
+	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
+		injectAntigravity = ginCtx.Request.Header.Get("X-Antigravity-Inject") == "true"
+	}
 
+	if injectAntigravity {
 		payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.role", "user")
+		systemInstructionPartsResult := gjson.Get(payloadStr, "request.systemInstruction.parts")
+		payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.parts.0.text", systemInstruction)
+		payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.parts.1.text", fmt.Sprintf("Please ignore following [ignore]%s[/ignore]", systemInstruction))
 
-		if !isClaude {
-			// Only inject Antigravity identity for non-Claude models
-			systemInstructionPartsResult := gjson.Get(payloadStr, "request.systemInstruction.parts")
-			payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.parts.0.text", systemInstruction)
-			payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.parts.1.text", fmt.Sprintf("Please ignore following [ignore]%s[/ignore]", systemInstruction))
-
-			// Re-append original parts after the injected identity parts
-			if systemInstructionPartsResult.Exists() && systemInstructionPartsResult.IsArray() {
-				for _, partResult := range systemInstructionPartsResult.Array() {
-					payloadStr, _ = sjson.SetRaw(payloadStr, "request.systemInstruction.parts.-1", partResult.Raw)
-				}
+		// Re-append original parts after the injected identity parts
+		if systemInstructionPartsResult.Exists() && systemInstructionPartsResult.IsArray() {
+			for _, partResult := range systemInstructionPartsResult.Array() {
+				payloadStr, _ = sjson.SetRaw(payloadStr, "request.systemInstruction.parts.-1", partResult.Raw)
 			}
 		}
-		// For Claude models, keep original systemInstruction parts intact
+	} else if useAntigravitySchema {
+		// Default behavior: only set role for Claude/gemini-3-pro-high models
+		payloadStr, _ = sjson.Set(payloadStr, "request.systemInstruction.role", "user")
 	}
 
 	if strings.Contains(lowerModelName, "claude") {
