@@ -100,14 +100,10 @@ func ConvertAntigravityResponseToClaude(_ context.Context, modelName string, ori
 
 	if bytes.Equal(rawJSON, []byte("[DONE]")) {
 		output := ""
-		// Only send final events if we have actually output content
-		if params.HasContent {
-			appendFinalEvents(params, &output, true)
-			return []string{
-				output + "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n\n",
-			}
+		appendFinalEvents(params, &output, true)
+		return []string{
+			output + "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n\n",
 		}
-		return []string{}
 	}
 
 	output := ""
@@ -341,11 +337,6 @@ func appendFinalEvents(params *Params, output *string, force bool) {
 		return
 	}
 
-	// Only send final events if we have actually output content
-	if !params.HasContent {
-		return
-	}
-
 	if params.ResponseType != 0 {
 		*output = *output + "event: content_block_stop\n"
 		*output = *output + fmt.Sprintf(`data: {"type":"content_block_stop","index":%d}`, params.ResponseIndex)
@@ -430,7 +421,7 @@ func ConvertAntigravityResponseToClaudeNonStream(_ context.Context, resolvedMode
 		}
 	}
 
-	responseJSON := `{"id":"","type":"message","role":"assistant","model":"","content":null,"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}`
+	responseJSON := `{"id":"","type":"message","role":"assistant","model":"","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}`
 	responseID := root.Get("response.responseId").String()
 	if responseID == "" {
 		responseID = generateMessageID()
@@ -557,12 +548,6 @@ func ConvertAntigravityResponseToClaudeNonStream(_ context.Context, resolvedMode
 		}
 	}
 	responseJSON, _ = sjson.Set(responseJSON, "stop_reason", stopReason)
-
-	if promptTokens == 0 && outputTokens == 0 {
-		if usageMeta := root.Get("response.usageMetadata"); !usageMeta.Exists() {
-			responseJSON, _ = sjson.Delete(responseJSON, "usage")
-		}
-	}
 
 	return responseJSON
 }

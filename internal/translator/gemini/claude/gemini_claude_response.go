@@ -57,13 +57,9 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 	}
 
 	if bytes.Equal(rawJSON, []byte("[DONE]")) {
-		// Only send message_stop if we have actually output content
-		if (*param).(*Params).HasContent {
-			return []string{
-				"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n\n",
-			}
+		return []string{
+			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n\n",
 		}
-		return []string{}
 	}
 
 	// Track whether tools are being used in this response chunk
@@ -239,28 +235,29 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 	usageResult := gjson.GetBytes(rawJSON, "usageMetadata")
 	if usageResult.Exists() && bytes.Contains(rawJSON, []byte(`"finishReason"`)) {
 		if candidatesTokenCountResult := usageResult.Get("candidatesTokenCount"); candidatesTokenCountResult.Exists() {
-			// Only send final events if we have actually output content
+			// Only close the content block if we have actually output content
 			if (*param).(*Params).HasContent {
 				output = output + "event: content_block_stop\n"
 				output = output + fmt.Sprintf(`data: {"type":"content_block_stop","index":%d}`, (*param).(*Params).ResponseIndex)
 				output = output + "\n\n\n"
-
-				output = output + "event: message_delta\n"
-				output = output + `data: `
-
-				template := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
-				if usedTool {
-					template = `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
-				} else if finish := gjson.GetBytes(rawJSON, "candidates.0.finishReason"); finish.Exists() && finish.String() == "MAX_TOKENS" {
-					template = `{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
-				}
-
-				thoughtsTokenCount := usageResult.Get("thoughtsTokenCount").Int()
-				template, _ = sjson.Set(template, "usage.output_tokens", candidatesTokenCountResult.Int()+thoughtsTokenCount)
-				template, _ = sjson.Set(template, "usage.input_tokens", usageResult.Get("promptTokenCount").Int())
-
-				output = output + template + "\n\n\n"
 			}
+
+			// Always send message_delta with stop_reason and usage
+			output = output + "event: message_delta\n"
+			output = output + `data: `
+
+			template := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+			if usedTool {
+				template = `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+			} else if finish := gjson.GetBytes(rawJSON, "candidates.0.finishReason"); finish.Exists() && finish.String() == "MAX_TOKENS" {
+				template = `{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`
+			}
+
+			thoughtsTokenCount := usageResult.Get("thoughtsTokenCount").Int()
+			template, _ = sjson.Set(template, "usage.output_tokens", candidatesTokenCountResult.Int()+thoughtsTokenCount)
+			template, _ = sjson.Set(template, "usage.input_tokens", usageResult.Get("promptTokenCount").Int())
+
+			output = output + template + "\n\n\n"
 		}
 	}
 
@@ -371,10 +368,6 @@ func ConvertGeminiResponseToClaudeNonStream(_ context.Context, _ string, origina
 		}
 	}
 	out, _ = sjson.Set(out, "stop_reason", stopReason)
-
-	if inputTokens == int64(0) && outputTokens == int64(0) && !root.Get("usageMetadata").Exists() {
-		out, _ = sjson.Delete(out, "usage")
-	}
 
 	return out
 }
